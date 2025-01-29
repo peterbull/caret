@@ -83,23 +83,31 @@ function getWebviewContent() {
                 messagesContainer.scrollTop = messagesContainer.scrollHeight;
             }
 
-            function sendMessage() {
-                const message = messageInput.value.trim();
-                if (message) {
-                    addMessage(message, true);
-                    vscode.postMessage({ type: 'chat', text: message });
-                    messageInput.value = '';
-                }
-            }
+			function sendMessage() {
+				const message = messageInput.value.trim();
+				if (message) {
+					addMessage(message, true);
+					vscode.postMessage({ type: 'chat', text: message });
+					messageInput.value = '';
+					currentResponseDiv = null; 
+				}
+			}
 
-            window.addEventListener('message', event => {
-                const message = event.data;
-                switch (message.command) {
-                    case 'chatResponse':
-                        addMessage(message.text, false);
-                        break;
-                }
-            });
+
+			window.addEventListener('message', event => {
+				const message = event.data;
+				switch (message.command) {
+					case 'chatResponse':
+						if (!currentResponseDiv) {
+							currentResponseDiv = document.createElement('div');
+							currentResponseDiv.className = 'message assistant-message';
+							messagesContainer.appendChild(currentResponseDiv);
+						}
+						currentResponseDiv.textContent = message.text;
+						messagesContainer.scrollTop = messagesContainer.scrollHeight;
+						break;
+    }
+});
 
             sendButton.addEventListener('click', sendMessage);
             messageInput.addEventListener('keypress', (e) => {
@@ -113,47 +121,62 @@ function getWebviewContent() {
   `;
 }
 
+class CaretChatViewProvider implements vscode.WebviewViewProvider {
+  private _view?: vscode.WebviewView;
+
+  constructor(private readonly _extensionUri: vscode.Uri) {}
+
+  public resolveWebviewView(
+    webviewView: vscode.WebviewView,
+    context: vscode.WebviewViewResolveContext,
+    _token: vscode.CancellationToken
+  ) {
+    this._view = webviewView;
+
+    webviewView.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [this._extensionUri],
+    };
+
+    webviewView.webview.html = getWebviewContent();
+
+    webviewView.webview.onDidReceiveMessage(async (message) => {
+      if (message.type === "chat") {
+        const userPrompt = message.text;
+        let responseText = "";
+
+        try {
+          const streamResponse = await ollama.chat({
+            model: "deepseek-r1:7b",
+            messages: [{ role: "user", content: userPrompt }],
+            stream: true,
+          });
+
+          for await (const part of streamResponse) {
+            responseText += part.message?.content || "";
+            webviewView.webview.postMessage({
+              command: "chatResponse",
+              text: responseText,
+            });
+          }
+        } catch (error) {
+          vscode.window.showErrorMessage(`Error: ${error}`);
+        }
+      }
+    });
+  }
+}
+
 export function activate(context: vscode.ExtensionContext) {
+  const provider = new CaretChatViewProvider(context.extensionUri);
   console.log('Congratulations, your extension "caret" is now active!');
 
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider("caret.chatView", provider)
+  );
+
   const disposable = vscode.commands.registerCommand("caret.start", () => {
-    const panel = vscode.window.createWebviewPanel(
-      "caretChat",
-      "Caret Chat",
-      vscode.ViewColumn.One,
-      { enableScripts: true }
-    );
-
-    panel.webview.html = getWebviewContent();
-
-    panel.webview.onDidReceiveMessage(
-      async (message) => {
-        if (message.type === "chat") {
-          const userPrompt = message.text;
-          let responseText = "";
-
-          try {
-            const streamResponse = await ollama.chat({
-              model: "deepseek-r1:7b",
-              messages: [{ role: "user", content: userPrompt }],
-              stream: true,
-            });
-
-            for await (const part of streamResponse) {
-              responseText += part.message?.content || "";
-              panel.webview.postMessage({
-                command: "chatResponse",
-                text: responseText,
-              });
-            }
-          } catch (error) {
-            vscode.window.showErrorMessage(`Error: ${error}`);
-          }
-        }
-      },
-      undefined,
-      context.subscriptions
-    );
+    vscode.commands.executeCommand("workbench.view.extension.caret-chat");
   });
 
   context.subscriptions.push(disposable);

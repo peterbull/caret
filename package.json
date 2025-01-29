@@ -17,7 +17,33 @@
         "command": "caret.start",
         "title": "Start Caret Chat"
       }
-    ]
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "caret-chat",
+          "title": "Caret Chat",
+          "icon": "$(comment-discussion)"
+        }
+      ]
+    },
+    "views": {
+      "caret-chat": [
+        {
+          "type": "webview",
+          "id": "caret.chatView",
+          "name": "Chat"
+        }
+      ]
+    },
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "caret.start",
+          "when": "true"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "pnpm run package",
