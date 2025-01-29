@@ -142,13 +142,13 @@ class CaretChatViewProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.onDidReceiveMessage(async (message) => {
       if (message.type === "chat") {
+        const ctx = `Here is the current file that is open in my browser: ${getEditorText()}.\n Here is my question or directive:\n\n`;
         const userPrompt = message.text;
         let responseText = "";
-
         try {
           const streamResponse = await ollama.chat({
             model: "deepseek-r1:7b",
-            messages: [{ role: "user", content: userPrompt }],
+            messages: [{ role: "user", content: ctx + userPrompt }],
             stream: true,
           });
 
@@ -165,6 +165,20 @@ class CaretChatViewProvider implements vscode.WebviewViewProvider {
       }
     });
   }
+}
+
+function getEditorText(): string {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    return "";
+  }
+
+  const selection = editor.selection;
+  if (!selection.isEmpty) {
+    return editor.document.getText(selection);
+  }
+
+  return editor.document.getText();
 }
 
 export function activate(context: vscode.ExtensionContext) {
