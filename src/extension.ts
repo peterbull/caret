@@ -44,6 +44,9 @@ function getWebviewContent() {
             button:hover {
                 background: #005999;
             }
+            button.active {
+                background: #005999;
+            }
             .message {
                 margin-bottom: 0.5rem;
                 padding: 0.5rem;
@@ -57,11 +60,19 @@ function getWebviewContent() {
                 background: #007acc22;
                 margin-right: 20%;
             }
+            #controls {
+                display: flex;
+                gap: 0.5rem;
+                margin-bottom: 1rem;
+            }
         </style>
     </head>
     <body>
         <div id="chat-container">
             <h2>Caret Chat</h2>
+            <div id="controls">
+                <button id="context-toggle">Include Context: Off</button>
+            </div>
             <div id="messages"></div>
             <div id="input-container">
                 <input type="text" id="message-input" placeholder="Type your message...">
@@ -74,6 +85,15 @@ function getWebviewContent() {
             const messagesContainer = document.getElementById('messages');
             const messageInput = document.getElementById('message-input');
             const sendButton = document.getElementById('send-button');
+            const contextToggle = document.getElementById('context-toggle');
+            let includeContext = false;
+            let currentResponseDiv = null;
+
+            contextToggle.addEventListener('click', () => {
+                includeContext = !includeContext;
+                contextToggle.textContent = \`Include Context: \${includeContext ? 'On' : 'Off'}\`;
+                contextToggle.classList.toggle('active', includeContext);
+            });
 
             function addMessage(content, isUser = true) {
                 const messageDiv = document.createElement('div');
@@ -83,31 +103,34 @@ function getWebviewContent() {
                 messagesContainer.scrollTop = messagesContainer.scrollHeight;
             }
 
-			function sendMessage() {
-				const message = messageInput.value.trim();
-				if (message) {
-					addMessage(message, true);
-					vscode.postMessage({ type: 'chat', text: message });
-					messageInput.value = '';
-					currentResponseDiv = null; 
-				}
-			}
+            function sendMessage() {
+                const message = messageInput.value.trim();
+                if (message) {
+                    addMessage(message, true);
+                    vscode.postMessage({ 
+                        type: 'chat', 
+                        text: message,
+                        includeContext: includeContext 
+                    });
+                    messageInput.value = '';
+                    currentResponseDiv = null; 
+                }
+            }
 
-
-			window.addEventListener('message', event => {
-				const message = event.data;
-				switch (message.command) {
-					case 'chatResponse':
-						if (!currentResponseDiv) {
-							currentResponseDiv = document.createElement('div');
-							currentResponseDiv.className = 'message assistant-message';
-							messagesContainer.appendChild(currentResponseDiv);
-						}
-						currentResponseDiv.textContent = message.text;
-						messagesContainer.scrollTop = messagesContainer.scrollHeight;
-						break;
-    }
-});
+            window.addEventListener('message', event => {
+                const message = event.data;
+                switch (message.command) {
+                    case 'chatResponse':
+                        if (!currentResponseDiv) {
+                            currentResponseDiv = document.createElement('div');
+                            currentResponseDiv.className = 'message assistant-message';
+                            messagesContainer.appendChild(currentResponseDiv);
+                        }
+                        currentResponseDiv.textContent = message.text;
+                        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                        break;
+                }
+            });
 
             sendButton.addEventListener('click', sendMessage);
             messageInput.addEventListener('keypress', (e) => {
@@ -142,13 +165,19 @@ class CaretChatViewProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.onDidReceiveMessage(async (message) => {
       if (message.type === "chat") {
-        const ctx = `Here is the current file that is open in my browser: ${getEditorText()}.\n Here is my question or directive:\n\n`;
         const userPrompt = message.text;
+        let fullPrompt = userPrompt;
+
+        if (message.includeContext) {
+          const ctx = getEditorText();
+          fullPrompt = `Here is the current file that is open in my editor:\n\n${ctx}\n\nHere is my question or directive:\n\n${userPrompt}`;
+        }
+
         let responseText = "";
         try {
           const streamResponse = await ollama.chat({
             model: "deepseek-r1:7b",
-            messages: [{ role: "user", content: ctx + userPrompt }],
+            messages: [{ role: "user", content: fullPrompt }],
             stream: true,
           });
 
